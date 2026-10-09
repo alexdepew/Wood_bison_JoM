@@ -1,0 +1,285 @@
+---
+title: "Locus_QC"
+format: html
+editor: visual
+---
+
+# Overview and Setup
+
+### File information
+
+This script is for data quality control, specificially locus quality control, to ensure accuracy of subsequent analyses. Files used described below:
+
+- `Cleaned_samples_2026.10.08` Contains all bison microsatellite data from wood and plains bison with added metadata for year collected
+
+### Load required packages
+
+```{r warning = FALSE, message = FALSE}
+rm(list = ls())
+library(adegenet)
+library(PopGenReport)
+library(poppr)
+library(pegas)
+library(strataG)
+library(tidyverse)
+library(graph4lg)
+library(svglite)
+```
+
+### Load and prepare data
+
+```{r}
+bison.data <- read.csv("./datafiles/Cleaned_data_2026.10.08.csv",
+                       check.names = F)
+
+# Make genind object
+bison.genind <- df2genind(X=bison.data[,c(15:ncol(bison.data))],
+                              sep = "/",
+                              ind.names = bison.data$Spreadsheet.ID,
+                              loc.names = NULL,
+                              pop = bison.data$Herd,
+                              NA.char = "NA",
+                              ploidy = 2,
+                              type = "codom",
+                              strata = NULL,
+                              hierarchy = NULL)
+bison.genind@other$year <- bison.data$Year.Collected
+```
+
+# Preliminary locus filtering
+
+### Missing data
+
+If a single loci contains significant missing data across samples, it could be indicative of
+
+```{r}
+locmiss_bison <-  propTyped(bison.genind, by = "loc")
+locmiss_bison[which(locmiss_bison < 0.80)] # print loci with < 80% complete genotypes
+
+barplot(locmiss_bison, ylim = c(0,1), ylab = "Complete genotypes (proportion)", xlab = "Locus", las = 2, cex.names = 0.7)
+
+bison.genind <- missingno(bison.genind, type = "loci", cutoff = 0.20)
+```
+
+### Test for polymorphism
+
+```{r}
+summary(bison.genind)
+isPoly(bison.genind) %>% summary
+```
+
+# Data subsetting
+
+For subsequent analyses, data is divided into two temporal cohorts. Data quality control measures are run on each cohort independently as to not induce the wahlund effect.
+
+```{r}
+# Create datasets containing samples of interest for temporal comparisons
+temp1 <- bison.genind[bison.genind@other$year <=2015,]
+
+temp2 <- bison.genind[bison.genind@other$year >=2016, ]
+
+# Remove populations which do not contain significant sample sizes in temporal groups
+table(pop(temp1)) 
+table(pop(temp2)) 
+
+# Create genind summaries for both temporal groupings
+temp1.sum <- summary(temp1)
+temp2.sum <- summary(temp2)
+```
+
+# Hardy-Weinberg equilibrium
+
+Because of the variance in sample sizes, and low sample sizes seen in some herds, a Markov Chain Monte Carlo exact test can be used to evaluate deviations from HWE.
+
+### prepare data for HWE exact test
+
+```{r}
+# In order to use the genepop's MCMC method of deterimining HWE deviations, the strataG implementation can be used. the bison "genind" objects must be reformatted as "gtypes" objects
+temp1.g <- genind2gtypes(temp1)
+temp2.g <- genind2gtypes(temp2)
+
+# Further, HWE deviations and linkage disequilibrium are tested within each population. Deviations or LD which occur across populations (at the same locus/loci) may indicate technical errors, adaptation, or linkage
+pop_list_temp1 <- strataSplit(temp1.g)
+pop_list_temp2 <- strataSplit(temp2.g)
+```
+
+### Test for HWE deviations
+
+```{r}
+# Apply HWE test from genepop. The strataG wrapper formats this back into R nicely for subsequent manipulation
+
+# Temp1 ----
+hwe_results_list_temp1 <- lapply(pop_list_temp1, function(pop) {
+  hweTest(
+    pop, 
+    use.genepop = T,     
+    which = "Proba",         
+    dememorization = 10000,  
+    batches = 500,           
+    num.rep = 5000,
+    delete.files = TRUE
+  )
+})
+
+HWE.temp1 <- as.data.frame(hwe_results_list_temp1) %>% # Make results as df
+  rownames_to_column("Locus") %>%  
+  pivot_longer(
+    cols = -c(Locus), 
+    names_to = "Population",       
+    values_to = "HWE_p_value"      
+  ) %>% 
+  # p-value correction by Population
+  group_by(Population) %>% 
+  mutate(p.adj_herd = p.adjust(HWE_p_value, method = "BH")) %>% 
+  ungroup() 
+
+# Temp2 ----
+hwe_results_list_temp2 <- lapply(pop_list_temp2, function(pop) {
+  hweTest(
+    pop, 
+    use.genepop = T,     
+    which = "Proba",         
+    dememorization = 10000,  
+    batches = 500,           
+    num.rep = 5000,
+    delete.files = TRUE
+  )
+})
+
+HWE.temp2 <- as.data.frame(hwe_results_list_temp2) %>% # Make results as df
+  rownames_to_column("Locus") %>%  
+  pivot_longer(
+    cols = -c(Locus), 
+    names_to = "Population",       
+    values_to = "HWE_p_value"      
+  ) %>% 
+  # p-value correction by Population
+  group_by(Population) %>% 
+  mutate(p.adj_herd = p.adjust(HWE_p_value, method = "BH")) %>% 
+  ungroup() 
+```
+
+### Summarize HWE deviations
+
+```{r}
+# Temp1 ----
+temp1.HWE.sum <- HWE.temp1 %>%
+  group_by(Population) %>%
+  summarise(
+    HWE_Deviations = sum(p.adj_herd <= 0.05, na.rm = TRUE),
+  ) %>%
+  arrange(desc(HWE_Deviations)) # Sort with most deviations at the top
+
+# View the summary table
+View(temp1.HWE.sum)
+
+# Temp2 ----
+temp2.HWE.sum <- HWE.temp2 %>%
+  group_by(Population) %>%
+  summarise(
+    HWE_Deviations = sum(p.adj_herd <= 0.05, na.rm = TRUE),
+  ) %>%
+  arrange(desc(HWE_Deviations)) # Sort with most deviations at the top
+
+# View the summary table
+View(temp2.HWE.sum)
+```
+
+### Format significant HWE deviations
+
+```{r}
+# Temp1
+HWE.sig.temp1 <- HWE.temp1 %>% 
+  filter(HWE_p_value <= 0.05)
+
+wide_HWE.temp1 <- HWE.temp1 %>%
+  select(Locus, Population, p.adj_herd) %>%
+  pivot_wider(
+    names_from = Population, 
+    values_from = p.adj_herd
+  )  %>% 
+  mutate(across(-Locus, ~ {
+    # 1. Force 4 decimal places (turns 1 into "1.0000")
+    formatted <- sprintf("%.4f", .)
+    
+    # 2. Add asterisk if the ORIGINAL numeric value was <= 0.05
+    if_else(. <= 0.05, paste0(formatted, "*"), formatted)
+  }))
+
+write.csv(wide_HWE.temp1, "./output/tables/QC/temp1.HWE.p_adjust.csv", row.names = F)
+
+
+# Temp2 
+wide_HWE.temp2 <- HWE.temp2 %>%
+  select(Locus, Population, p.adj_herd) %>%
+  pivot_wider(
+    names_from = Population, 
+    values_from = p.adj_herd
+  ) %>% 
+  mutate(across(-Locus, ~ {
+    # 1. Force 4 decimal places (turns 1 into "1.0000")
+    formatted <- sprintf("%.4f", .)
+    
+    # 2. Add asterisk if the ORIGINAL numeric value was <= 0.05
+    if_else(. <= 0.05, paste0(formatted, "*"), formatted)
+  }))
+
+write.csv(wide_HWE.temp2, "./output/tables/QC/temp2.HWE.p_adjust.csv", row.names = F)
+```
+
+# Test for linkage disequilibrium
+
+Pairwise test for LD using Genepop through *strataG*. If LD is present in loci across the majority of herds, it may indicate physical linkage as opposed to local variation.
+
+```{r}
+# Temp1 ----
+LD_results_temp1 <- lapply(pop_list_temp1, function(pop) {
+  LDgenepop(
+  pop,
+  dememorization = 10000,
+  batches = 100,
+  iterations = 5000,
+  delete.files = TRUE
+  )
+})
+
+LD.df.temp1 <- bind_rows(LD_results_temp1, .id = "Population") # Put into dataframe format
+
+LD.df.temp1 <- LD.df.temp1 %>%
+  group_by(Population) %>%  # Separate by populations
+  mutate(p.adj_herd = p.adjust(p.value, method = "BH")) %>% # Perform BH correction within each population
+  ungroup()
+
+# Dataframe of significant pairwise values
+LD.temp1.sig <- LD.df.temp1 %>% 
+  filter(p.adj_herd <= 0.05 & 
+           !is.na(Locus.2))
+
+write.csv(LD.temp1.sig, "./output/tables/QC/temp1LD.csv", row.names = F)
+
+
+# Temp2 ----
+LD_results_temp2 <- lapply(pop_list_temp2, function(pop) {
+  LDgenepop(
+  pop,
+  dememorization = 10000,
+  batches = 100,
+  iterations = 5000,
+  delete.files = TRUE
+  )
+})
+
+LD.df.temp2 <- bind_rows(LD_results_temp2, .id = "Population") # Put into dataframe format
+
+LD.df.temp2 <- LD.df.temp2 %>%
+  group_by(Population) %>%  # Separate by populations
+  mutate(p.adj_herd = p.adjust(p.value, method = "BH")) %>% # Perform BH correction within each population
+  ungroup()
+
+# Dataframe of significant pairwise values
+LD.temp2.sig <- LD.df.temp2 %>% 
+  filter(p.adj_herd <= 0.05 & 
+           !is.na(Locus.2))
+
+write.csv(LD.temp2.sig, "./output/tables/QC/temp2LD.csv", row.names = F)
+```
