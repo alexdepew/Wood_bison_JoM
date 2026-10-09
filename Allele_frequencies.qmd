@@ -1,0 +1,66 @@
+---
+title: "Allele_frequencies"
+format: html
+editor: visual
+---
+
+# File Information and Setup
+
+## File Information
+
+This script is used to create allele frequency tables for the bison microsatellite samples.
+
+Files used described below:
+
+- `Cleaned_data_2026.10.08.csv`
+
+Contains all samples for population genetic analyses post-filtering
+
+### Load packages
+
+```{r Load packages}
+| echo: False
+rm(list = ls())
+library(adegenet)
+library(tidyverse)
+```
+
+### Load data
+
+```{r Load data}
+bison.data <- read.csv("./datafiles/Cleaned_data_2026.10.08.csv",
+                       check.names = FALSE)
+```
+
+# Transform data
+
+```{r Transform data}
+## Genind object for individual-genotype data
+bison.genind <- df2genind(X=bison.data[,c(15:ncol(bison.data))],
+                              sep = "/",
+                              ind.names = bison.data$Spreadsheet.ID,
+                              loc.names = NULL,
+                              pop = bison.data$Herd,
+                              NA.char = "NA",
+                              ploidy = 2,
+                              type = "codom",
+                              strata = NULL,
+                              hierarchy = NULL)
+
+# Attach the Collection year to the genetic data
+bison.genind@other$year <- bison.data$Year.Collected
+
+## genpop object for population-level data
+bison.genpop <- genind2genpop(bison.genind)
+```
+
+# Allele frequency tables
+
+```{r}
+freqs <- as.data.frame(makefreq(bison.genpop)) %>% 
+  rownames_to_column("Herd")
+
+# Write to csv
+write.csv(freqs, "./output/tables/allelefreq/Global_allele_frequency_table.csv", 
+          row.names = FALSE)
+```
