@@ -19,7 +19,6 @@ Contains all samples for population genetic analyses post-filtering
 ### Load packages
 
 ```{r Load packages}
-| echo: False
 rm(list = ls())
 library(adegenet)
 library(tidyverse)

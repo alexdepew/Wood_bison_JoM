@@ -283,3 +283,15 @@ LD.temp2.sig <- LD.df.temp2 %>%
 
 write.csv(LD.temp2.sig, "./output/tables/QC/temp2LD.csv", row.names = F)
 ```
+
+
+# Test for null alleles
+Format into genepop file format for use in Micro-Checker
+```{r}
+genind_to_genepop(temp1,
+                  output = "./datafiles/genepop/temp1.genepop.txt")
+
+genind_to_genepop(temp2,
+                  output = "./datafiles/genepop/temp2.genepop.txt")
+```
+
