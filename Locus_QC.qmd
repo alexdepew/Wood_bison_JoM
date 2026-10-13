@@ -284,14 +284,95 @@ LD.temp2.sig <- LD.df.temp2 %>%
 write.csv(LD.temp2.sig, "./output/tables/QC/temp2LD.csv", row.names = F)
 ```
 
-
 # Test for null alleles
-Format into genepop file format for use in Micro-Checker
+Format into genepop file format for use in Micro-Checker and FreeNA softwares
 ```{r}
 genind_to_genepop(temp1,
                   output = "./datafiles/genepop/temp1.genepop.txt")
 
 genind_to_genepop(temp2,
                   output = "./datafiles/genepop/temp2.genepop.txt")
+```
+
+## Vector with locus names
+```{r}
+loci <- c(
+"BMS1117", 
+"TGLA53", 
+"BMC4214", 
+"BM1225", 
+"BM47", 
+"BMS1315", 
+"IL4", 
+"BM2113", 
+"BMS1716", 
+"BM1706", 
+"BMS1675", 
+"BMS1857", 
+"BMS1001", 
+"BMS601", 
+"BM720", 
+"ILSTS102", 
+"BMS1074", 
+"BMS1172", 
+"BMS2258", 
+"BM757", 
+"SPS115", 
+"BMS527", 
+"BM2830", 
+"INRA194", 
+"BMS941", 
+"INRA037", 
+"BM4107", 
+"TGLA122", 
+"HUJ246", 
+"BMS528", 
+"BM4440", 
+"TGLA44", 
+"BMS510", 
+"BMS1355", 
+"BM1824", 
+"BMS812", 
+"BMS2639", 
+"BMS410", 
+"AGLA232", 
+"BM17132", 
+"BM711", 
+"INRA133", 
+"RM372", 
+"BM4311", 
+"BMS1747", 
+"BL1036", 
+"BM1862", 
+"BMS1862", 
+"URB011" 
+)
+```
+
+## Read FreeNA frequency output
+```{r}
+# Temporal group 1
+## Isolate herd names in alphabetical order (how genepop structures the file)
+temp1.pops <- sort(as.character(unique(temp1@pop)))
+
+# Read null frequency file
+temp1.null <- read.table("./FreeNA/temp1_out/temp1.null.freq.txt")
+
+# Format data with locus and population names
+temp1.null <- temp1.null %>% 
+  setNames(c("Locus","Population","r")) %>% 
+  mutate(Locus = loci[Locus]) %>% 
+  mutate(Population = temp1.pops[Population])
+  
+# Temporal group 2
+temp2.pops <- sort(as.character(unique(temp2@pop)))
+temp2.null <- read.table("./FreeNA/temp2_out/temp2.null.freq.txt")
+
+temp2.null <- temp2.null %>% 
+  setNames(c("Locus","Population","r")) %>% 
+  mutate(Locus = loci[Locus]) %>% 
+  mutate(Population = temp2.pops[Population])
+
+
 ```
 
